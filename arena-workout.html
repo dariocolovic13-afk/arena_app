@@ -1,0 +1,229 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Arena Workout</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;700;800&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: gym-floor readout — giant rep count + live cable gauge up top, readable from 2 m away; set history below */
+:root{
+  --bg:#f1f3f4; --panel:#ffffff; --fg:#111518; --muted:#5d6870; --line:#d6dbdf;
+  --accent:#0a7d6b; --accent-ink:#fff; --pull:#0a7d6b; --ret:#b5520a; --idle:#8a949b;
+  --display:"Barlow Condensed","Arial Narrow",sans-serif; --body:"IBM Plex Sans",system-ui,sans-serif; --mono:"IBM Plex Mono",ui-monospace,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){--bg:#0d1114;--panel:#161b1f;--fg:#e8ecee;--muted:#8b979f;--line:#283036;--accent:#2bbf9f;--accent-ink:#04110d;--pull:#2bbf9f;--ret:#ec9748;--idle:#6b767d;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#0d1114;--panel:#161b1f;--fg:#e8ecee;--muted:#8b979f;--line:#283036;--accent:#2bbf9f;--accent-ink:#04110d;--pull:#2bbf9f;--ret:#ec9748;--idle:#6b767d;color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 var(--body);padding-block:16px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+.wrap{max-width:1100px;margin:0 auto;display:flex;flex-direction:column;gap:16px}
+header{display:flex;flex-wrap:wrap;gap:10px 16px;align-items:center;justify-content:space-between}
+h1{margin:0;font:800 1.9rem/1 var(--display);text-transform:uppercase;letter-spacing:.03em}
+.status{font:500 .8rem var(--mono);padding:3px 10px;border-radius:99px;border:1px solid var(--line);color:var(--muted)}
+.status.on{color:var(--accent);border-color:var(--accent)}
+button{font:600 .9rem var(--body);padding:9px 16px;border-radius:6px;border:1px solid var(--line);background:var(--panel);color:var(--fg);cursor:pointer}
+button.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+button:disabled{opacity:.45;cursor:not-allowed}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.stage{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(0,1fr);gap:16px}
+@media (max-width:760px){.stage{grid-template-columns:minmax(0,1fr)}}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:16px 18px;min-width:0}
+.label{font:600 .72rem var(--body);text-transform:uppercase;letter-spacing:.09em;color:var(--muted)}
+.reps{display:flex;align-items:flex-end;gap:18px;flex-wrap:wrap}
+.big{font:800 clamp(6rem,22vw,11rem)/.85 var(--display);font-variant-numeric:tabular-nums}
+.side{display:flex;flex-direction:column;gap:12px;padding-bottom:10px}
+.stat .v{font:700 2.4rem/1 var(--display);font-variant-numeric:tabular-nums}
+.stat .v small{font-size:1rem;color:var(--muted);font-weight:500;margin-left:3px}
+.phase{display:inline-block;font:700 1.1rem var(--display);text-transform:uppercase;letter-spacing:.06em;padding:2px 12px;border-radius:4px;background:var(--idle);color:var(--bg)}
+.phase.pull{background:var(--pull)} .phase.ret{background:var(--ret)}
+.gauge{display:flex;gap:16px;align-items:stretch;height:100%;min-height:260px}
+.track{position:relative;width:46px;border-radius:8px;background:var(--bg);border:1px solid var(--line);overflow:hidden}
+.fill{position:absolute;left:0;right:0;bottom:0;background:var(--accent);transition:height .1s linear}
+.peak{position:absolute;left:0;right:0;height:2px;background:var(--fg);opacity:.5}
+canvas{width:100%;height:100%;min-height:200px;display:block}
+.gcol{flex:1;min-width:0;display:flex;flex-direction:column;gap:6px}
+table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}
+th{text-align:left;font:600 .7rem var(--body);text-transform:uppercase;letter-spacing:.07em;color:var(--muted);padding:6px 8px;border-bottom:1px solid var(--line)}
+td{padding:7px 8px;border-bottom:1px solid var(--line);font:500 .95rem var(--mono)}
+.empty{color:var(--muted)}
+.note{color:var(--muted);font-size:.85rem;margin:0}
+.lock{border:1px dashed var(--line);border-radius:8px;padding:10px 12px;color:var(--muted);font-size:.88rem}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="row"><h1>Arena Workout</h1><span id="status" class="status">Not connected</span></div>
+    <div class="row">
+      <button id="btnConnect" class="primary">Connect platform</button>
+      <button id="btnNewSet">New set</button>
+      <button id="btnDisc" disabled>Disconnect</button>
+    </div>
+  </header>
+
+  <div class="stage">
+    <div class="card">
+      <div class="row" style="justify-content:space-between"><span class="label">Reps this set</span><span id="phase" class="phase">Idle</span></div>
+      <div class="reps">
+        <div id="reps" class="big">0</div>
+        <div class="side">
+          <div class="stat"><div class="label">Resistance now</div><div class="v"><span id="force">--</span><small>lb</small></div></div>
+          <div class="stat"><div class="label">Weight setting</div><div class="v"><span id="target">--</span><small>lb</small></div></div>
+          <div class="stat"><div class="label">Peak speed this set</div><div class="v"><span id="peakv">--</span></div></div>
+        </div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="gauge">
+        <div class="track" aria-label="Cable position"><div id="fill" class="fill" style="height:0"></div><div id="peakline" class="peak" style="bottom:0"></div></div>
+        <div class="gcol"><span class="label">Cable travel · last 10 s</span><canvas id="trace"></canvas></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="row" style="justify-content:space-between;margin-bottom:6px"><span class="label">Sets today</span><span id="total" class="note"></span></div>
+    <div style="overflow-x:auto"><table><thead><tr><th>Set</th><th>Reps</th><th>Weight</th><th>Best range</th><th>Peak speed</th><th>Time</th></tr></thead><tbody id="sets"><tr><td colspan="6" class="empty">Connect and start pulling. A set ends after 20 seconds of rest, or when you tap New set.</td></tr></tbody></table></div>
+  </div>
+
+  <div class="card">
+    <div class="row" style="justify-content:space-between;align-items:center">
+      <div><div class="label">Change weight</div><p class="note" id="wmsg">Connect first. Changes only apply while the cable is fully retracted.</p></div>
+      <div class="row">
+        <button id="btnDown" class="wbtn" disabled aria-label="Decrease weight by 5 pounds">−5 lb</button>
+        <div class="stat" style="min-width:5.5ch;text-align:center"><div class="v"><span id="wtarget">--</span><small>lb</small></div></div>
+        <button id="btnUp" class="wbtn primary" disabled aria-label="Increase weight by 5 pounds">+5 lb</button>
+      </div>
+    </div>
+  </div>
+  <p class="note">Use Chrome on a computer or Android phone, or the Bluefy browser on iPhone. Close any other Bluetooth app first; the platform accepts one connection at a time.</p>
+</div>
+
+<script>
+const SVC="0000abf0-3e80-408c-8a0d-80f5a7a90dd2", STATUS="0000abf2-3e80-408c-8a0d-80f5a7a90dd2", CMD="0000abf1-3e80-408c-8a0d-80f5a7a90dd2";
+let cmdChar=null, atRest=false, pending=null;
+const MIN_LB=10, MAX_LB=200, STEP=5;
+const $=id=>document.getElementById(id);
+let dev=null;
+/* frame = protobuf body + CRC-16/CCITT-FALSE little-endian */
+function crc16(b){let c=0xffff;for(const x of b){c^=x<<8;for(let i=0;i<8;i++)c=c&0x8000?((c<<1)^0x1021)&0xffff:(c<<1)&0xffff;}return c;}
+function pb(b,s=0,e=b.length,pre="",out={}){let i=s;const vint=()=>{let r=0,m=1,c;do{c=b[i++];r+=(c&0x7f)*m;m*=128;}while(c&0x80);return r;};
+  while(i<e){const key=vint(),f=Math.floor(key/8),w=key&7,k=pre+f;
+    if(w===0)out[k]=vint();else if(w===5){out[k]=new DataView(b.buffer,b.byteOffset+i,4).getFloat32(0,true);i+=4;}
+    else if(w===1){i+=8;}else if(w===2){const n=vint(),st=i;i+=n;pb(b,st,st+n,k+".",out);}else throw 0;}
+  return out;}
+
+const state={baseRep:null,lastRep:0,setReps:0,peakPos:0,maxRange:0.5,peakV:0,lastMove:Date.now(),target:null,sets:[],setStart:null};
+try{const s=JSON.parse(localStorage.getItem("arena-sets-"+new Date().toDateString())||"[]");state.sets=s;}catch{}
+const trace=[];
+
+function onStatus(ev){
+  const v=ev.target.value,b=new Uint8Array(v.buffer,v.byteOffset,v.byteLength);
+  if(b.length<4)return;const body=b.subarray(0,b.length-2);
+  if(crc16(body)!==(b[b.length-2]|b[b.length-1]<<8))return;
+  let f;try{f=pb(body);}catch{return;}
+  if(f["1"]!==2)return;
+  const pos=Math.max(0,f["4.2.3"]||0),vel=f["4.2.4"]||0,force=f["4.2.5"]||0,rep=f["4.2.7"]||0,ph=f["4.2.8"]||0,target=f["4.3.4"];
+  if(state.baseRep===null){state.baseRep=rep;state.lastRep=rep;} // don't count reps done before connecting
+  if(rep<state.lastRep)state.lastRep=rep; // box reset its counter
+  if(rep>state.lastRep){ if(state.setReps===0)state.setStart=Date.now(); state.setReps+=rep-state.lastRep;}
+  state.lastRep=rep;
+  if(Math.abs(vel)>1.5)state.lastMove=Date.now();
+  if(pos>state.peakPos)state.peakPos=pos;
+  if(pos>state.maxRange)state.maxRange=pos;
+  if(vel>state.peakV)state.peakV=vel;
+  state.target=f["4.3.7.1"]??target; // constantForce.startingForceLbs (what the app sets)
+  atRest=ph!==1&&pos<0.05&&Math.abs(vel)<0.5; // not pulling, cable home, not moving
+  if(pending&&state.target!=null&&Math.abs(state.target-pending.lbs)<0.01){clearTimeout(pending.timer);pending=null;wmsg(`Set to ${state.target} lb.`);}
+  syncWeightUI();
+  trace.push([performance.now(),pos]);while(trace.length&&performance.now()-trace[0][0]>10000)trace.shift();
+  if(state.setReps>0&&Date.now()-state.lastMove>20000)endSet();
+  render(pos,force,ph);
+}
+function render(pos,force,ph){
+  $("reps").textContent=state.setReps;$("force").textContent=force.toFixed(1);
+  $("target").textContent=state.target!=null?state.target.toFixed(0):"--";
+  $("peakv").textContent=state.peakV?state.peakV.toFixed(0):"--";
+  const p=$("phase");p.className="phase"+(ph===1?" pull":ph===2?"":" ret");p.textContent=ph===1?"Pulling":ph===2?"Idle":"Returning";
+  $("fill").style.height=Math.min(100,pos/state.maxRange*100)+"%";
+  $("peakline").style.bottom=Math.min(100,state.peakPos/state.maxRange*100)+"%";
+  draw();
+}
+function draw(){
+  const c=$("trace"),r=c.getBoundingClientRect(),dpr=devicePixelRatio||1;
+  if(c.width!==Math.round(r.width*dpr)){c.width=r.width*dpr;c.height=r.height*dpr;}
+  const g=c.getContext("2d"),W=c.width,H=c.height,cs=getComputedStyle(document.documentElement);
+  g.clearRect(0,0,W,H);g.strokeStyle=cs.getPropertyValue("--line");g.lineWidth=1;
+  for(let i=1;i<4;i++){g.beginPath();g.moveTo(0,H*i/4);g.lineTo(W,H*i/4);g.stroke();}
+  if(trace.length<2)return;const now=performance.now();
+  g.beginPath();trace.forEach(([t,p],i)=>{const x=W*(1-(now-t)/10000),y=H-(p/state.maxRange)*H*.92-2;i?g.lineTo(x,y):g.moveTo(x,y);});
+  g.strokeStyle=cs.getPropertyValue("--accent");g.lineWidth=2.5*dpr;g.stroke();
+}
+function endSet(){
+  if(state.setReps>0){
+    state.sets.push({reps:state.setReps,weight:state.target,range:+state.peakPos.toFixed(2),peakV:Math.round(state.peakV),time:new Date().toLocaleTimeString([], {hour:"numeric",minute:"2-digit"})});
+    try{localStorage.setItem("arena-sets-"+new Date().toDateString(),JSON.stringify(state.sets));}catch{}
+  }
+  state.setReps=0;state.peakPos=0;state.peakV=0;renderSets();render(0,0,2);
+}
+function renderSets(){
+  const tb=$("sets");if(!state.sets.length)return;
+  tb.innerHTML=state.sets.map((s,i)=>`<tr><td>${i+1}</td><td>${s.reps}</td><td>${s.weight??"--"} lb</td><td>${s.range}</td><td>${s.peakV}</td><td>${s.time}</td></tr>`).join("");
+  const reps=state.sets.reduce((a,s)=>a+s.reps,0),vol=state.sets.reduce((a,s)=>a+s.reps*(s.weight||0),0);
+  $("total").textContent=`${state.sets.length} sets · ${reps} reps · ${vol.toLocaleString()} lb moved`;
+}
+renderSets();
+
+$("btnConnect").onclick=async()=>{
+  if(!navigator.bluetooth){$("status").textContent="Use Chrome, Edge, or Bluefy";return;}
+  try{
+    dev=await navigator.bluetooth.requestDevice({filters:[{namePrefix:"Arena"},{services:[SVC]}],optionalServices:[SVC]});
+    $("status").textContent="Connecting…";
+    dev.addEventListener("gattserverdisconnected",()=>{cmdChar=null;pending=null;syncWeightUI();$("status").textContent="Disconnected";$("status").classList.remove("on");$("btnDisc").disabled=true;});
+    const srv=await dev.gatt.connect(),svc=await srv.getPrimaryService(SVC),ch=await svc.getCharacteristic(STATUS);
+    ch.addEventListener("characteristicvaluechanged",onStatus);await ch.startNotifications();
+    try{cmdChar=await svc.getCharacteristic(CMD);}catch{cmdChar=null;wmsg("Weight control unavailable on this platform.");}
+    state.baseRep=null;state.lastRep=0;
+    $("status").textContent="Connected · "+(dev.name||"Arena");$("status").classList.add("on");$("btnDisc").disabled=false;
+  }catch(e){$("status").textContent=e.message.slice(0,60);}
+};
+/* ---- weight command, built exactly like the original app (firmware v12):
+   KioskSends{1:messageType=RUN_SPOOL(2), 4:runSpool{2:settings{7:constantForce{1:startingForceLbs(float)}}}}
+   frame = protobuf + CRC16-CCITT-FALSE (lo,hi) + 00 00 */
+function weightFrame(lbs,trailingZeros=true){
+  const f=new Uint8Array(4);new DataView(f.buffer).setFloat32(0,lbs,true);
+  const cf=[0x0d,...f], ss=[0x3a,cf.length,...cf], rs=[0x12,ss.length,...ss], ks=[0x08,0x02,0x22,rs.length,...rs];
+  const c=crc16(ks);return new Uint8Array([...ks,c&0xff,c>>8,...(trailingZeros?[0,0]:[])]);
+}
+function wmsg(t){$("wmsg").textContent=t;}
+function syncWeightUI(){
+  const ok=!!cmdChar&&dev?.gatt.connected&&atRest&&!pending&&state.target!=null;
+  $("btnUp").disabled=!ok||state.target>=MAX_LB;$("btnDown").disabled=!ok||state.target<=MIN_LB;
+  $("wtarget").textContent=pending?pending.lbs:(state.target??"--");
+  if(cmdChar&&!pending&&!atRest&&state.target!=null)wmsg("Let the cable fully retract to change weight.");
+  else if(ok&&/retract|Connect/.test($("wmsg").textContent))wmsg("Ready. Stand clear of the cable when changing weight.");
+}
+async function changeWeight(delta){
+  if(!atRest||pending||state.target==null)return;
+  const lbs=Math.min(MAX_LB,Math.max(MIN_LB,Math.round((state.target+delta)/STEP)*STEP));
+  if(lbs===state.target)return;
+  const send=async(tz)=>{const fr=weightFrame(lbs,tz);await cmdChar.writeValueWithResponse(fr);};
+  pending={lbs,tries:1};syncWeightUI();wmsg(`Setting ${lbs} lb…`);
+  try{
+    await send(true);
+    pending.timer=setTimeout(async()=>{ // no confirmation: retry once with 2-byte checksum framing
+      if(!pending)return;pending.tries=2;
+      try{await send(false);}catch(e){}
+      pending.timer=setTimeout(()=>{if(pending){wmsg(`The platform didn't confirm ${pending.lbs} lb. Weight is still ${state.target} lb.`);pending=null;syncWeightUI();}},2000);
+    },2000);
+  }catch(e){pending=null;wmsg("Couldn't send: "+e.message);syncWeightUI();}
+}
+$("btnUp").onclick=()=>changeWeight(+STEP);
+$("btnDown").onclick=()=>changeWeight(-STEP);
+$("btnDisc").onclick=()=>dev?.gatt.connected&&dev.gatt.disconnect();
+$("btnNewSet").onclick=endSet;
+addEventListener("resize",draw);
+</script>
+</body>
+</html>
